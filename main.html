@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body { margin:0; padding:20px; background:transparent; font-family:Arial,sans-serif; overflow:hidden; }
+        #game { max-width:900px; margin:0 auto; background:var(--bg,rgba(0,0,0,0.1)); padding:30px; border:var(--border,2px solid #fff); 
+            box-shadow:var(--glow,0 0 10px #00ff88); opacity:var(--opacity,0.9); border-radius:12px; font-size:var(--fs,24px); line-height:1.6; }
+        input { font:inherit; font-size:inherit; padding:8px; margin:2px; border:1px solid #ccc; border-radius:4px; background:rgba(255,255,255,0.9); }
+        input.correct { background:#90EE90; border-color:#4CAF50; }
+        input.wrong { background:#FFB6C1; border-color:#f44336; animation:shake 0.3s; }
+        input:focus { outline:none; box-shadow:0 0 5px #00ff88; }
+        .done { text-align:center; font-size:1.2em; color:#4CAF50; }
+        @keyframes shake { 0%,100%{transform:translateX(0);} 25%{transform:translateX(-5px);} 75%{transform:translateX(5px);} }
+        @media (max-width:600px) { body { padding:10px; } #game { padding:20px; } }
+    </style>
+</head>
+<body>
+    <div id="game"></div>
+    
+    <script>
+        const params = new URLSearchParams(location.search);
+        const GAME_ID = params.get('id');
+        const JSON_BASE = "https://nikashum93.github.io/texts/data/";
+        
+        async function loadConfig() {
+            if (!GAME_ID) return alert('Нужен параметр ?id=...');
+            try {
+                const res = await fetch(`${JSON_BASE}${GAME_ID}.json`);
+                if (!res.ok) throw new Error('Файл не найден');
+                return await res.json();
+            } catch(e) {
+                return { sourceText: 'Ошибка загрузки данных. Проверьте публикацию.', lang: 'ru' };
+            }
+        }
+        
+        async function init() {
+            const cfg = await loadConfig();
+            document.documentElement.style.setProperty('--fs', cfg.fontSize + 'px');
+            document.documentElement.style.setProperty('--bg', cfg.bgColor);
+            document.documentElement.style.setProperty('--glow', cfg.glow);
+            document.documentElement.style.setProperty('--border', cfg.border);
+            document.documentElement.style.setProperty('--opacity', cfg.opacity);
+            
+            if (cfg.font) {
+                const link = document.createElement('link');
+                link.href = `https://fonts.googleapis.com/css2?family=${cfg.font.replace(' ','+')}&display=swap`;
+                link.rel = 'stylesheet';
+                document.head.appendChild(link);
+                document.documentElement.style.setProperty('--font', cfg.font);
+            }
+            
+            const gaps = parseGaps(cfg.sourceText);
+            const gameDiv = document.getElementById('game');
+            gaps.forEach((part, i) => {
+                if (!part.isGap) {
+                    gameDiv.innerHTML += `<span>${part.text}</span> `;
+                } else {
+                    const input = document.createElement('input');
+                    input.dataset.answer = part.text.toLowerCase();
+                    input.placeholder = '???';
+                    input.onblur = checkAnswer;
+                    input.oninput = checkAnswer;
+                    gameDiv.appendChild(input);
+                    gameDiv.innerHTML += ' ';
+                }
+            });
+        }
+        
+        function parseGaps(text) {
+            const gaps = []; let pos = 0;
+            text.replace(/\[[^\]]+\]/g, (match, offset) => {
+                gaps.push({text: text.slice(pos, offset), isGap: false});
+                gaps.push({text: match.slice(1,-1), isGap: true});
+                pos = offset + match.length;
+            });
+            gaps.push({text: text.slice(pos), isGap: false});
+            return gaps.filter(p => p.text.trim());
+        }
+        
+        function checkAnswer(e) {
+            const input = e.target;
+            const isCorrect = input.value.toLowerCase().trim() === input.dataset.answer;
+            input.className = isCorrect ? 'correct' : 'wrong';
+            
+            if (isCorrect) {
+                input.disabled = true;
+                if (Array.from(document.querySelectorAll('input:not([disabled]'), i => i.value.toLowerCase().trim() !== i.dataset.answer).length === 0) {
+                    setTimeout(() => document.getElementById('game').innerHTML = '<div class="done">✅ Отлично! Все слова на месте!</div>', 500);
+                }
+            }
+        }
+        
+        init();
+    </script>
+</body>
+</html>
