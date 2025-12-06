@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Text Gap Editor</title>
+    <style>
+        body { font-family: Arial,sans-serif; max-width:900px; margin:0 auto; padding:20px; background:#f5f5f5; }
+        textarea, input, select { width:100%; padding:10px; margin:5px 0; border:1px solid #ddd; border-radius:4px; box-sizing:border-box; }
+        #preview { border:2px dashed #ccc; min-height:200px; padding:20px; background:transparent; margin:10px 0; overflow:auto; }
+        button { background:#007bff; color:white; padding:10px 20px; border:none; border-radius:4px; cursor:pointer; }
+        button:hover { background:#0056b3; }
+        #iframeOut { background:#eee; font-family:monospace; height:120px; }
+        .controls { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:10px 0; }
+        @media (max-width:600px) { .controls { grid-template-columns:1fr; } }
+    </style>
+</head>
+<body>
+    <h1>Text Gap Editor для Genially</h1>
+    
+    <div class="controls">
+        <div>
+            <label>Текст с выделенными словами:</label>
+            <textarea id="sourceText" rows="6" placeholder="Вставьте текст. Выделите слова двойным кликом или вручную в []: Привет [мир] как [дела]?"
+                oninput="updatePreview()">Вставьте текст. Выделите слова для пропусков.</textarea>
+        </div>
+        <div>
+            <label>Параметры:</label>
+            <select id="lang"><option value="ru">Русский</option><option value="en">English</option></select>
+            <input id="font" value="Roboto" placeholder="Google Font">
+            <input id="fontSize" type="number" value="24" min="12" max="72"> px
+            <input id="bgColor" value="rgba(0,0,0,0.1)" placeholder="Фон">
+            <input id="glow" value="0 0 10px #00ff88" placeholder="Свечение">
+            <input id="border" value="2px solid #fff" placeholder="Рамка">
+            <input id="opacity" type="range" min="0" max="1" step="0.1" value="0.9">
+        </div>
+    </div>
+    
+    <div id="preview">Предпросмотр появится здесь...</div>
+    <button onclick="quickTest()">Тест JSON</button>
+    <button onclick="publish()">Опубликовать → GitHub</button>
+    <button onclick="copyIframe()">Копировать iframe</button>
+    
+    <textarea id="iframeOut" readonly placeholder="iframe код здесь..."></textarea>
+
+    <script>
+        const ENDPOINT = "https://server-kjnn.onrender.com/publish";
+        const PUBLISH_KEY = "nika_read_pub_2025";
+        const BASE_MAIN = "https://nikashum93.github.io/falling/main.html"; // замени на свой repo
+
+        function $(id) { return document.getElementById(id); }
+        
+        function updatePreview() {
+            const cfg = collectConfig();
+            const textHtml = parseGaps(cfg.sourceText).map(part => 
+                part.isGap ? `<input type="text" data-answer="${part.text}" style="font-size:${cfg.fontSize}px; font-family:${cfg.font};">` 
+                           : `<span style="font-family:${cfg.font}; font-size:${cfg.fontSize}px;">${part.text}</span>`
+            ).join('');
+            
+            $('#preview').innerHTML = `<div style="background:${cfg.bgColor}; padding:20px; border:${cfg.border}; box-shadow:${cfg.glow}; opacity:${cfg.opacity}; 
+                font-family:${cfg.font}; font-size:${cfg.fontSize}px; line-height:1.5; border-radius:8px;">
+                ${textHtml}
+            </div>`;
+            applyGoogleFont(cfg.font);
+        }
+        
+        function parseGaps(text) {
+            const gaps = []; let pos = 0;
+            text.replace(/\[[^\]]+\]/g, (match, offset) => {
+                gaps.push({text: text.slice(pos, offset), isGap: false});
+                gaps.push({text: match.slice(1,-1), isGap: true});
+                pos = offset + match.length;
+            });
+            gaps.push({text: text.slice(pos), isGap: false});
+            return gaps.filter(p => p.text.trim());
+        }
+        
+        function collectConfig() {
+            return {
+                id: 'demo-gap', // будет перезаписан в publish
+                lang: $('#lang').value,
+                sourceText: $('#sourceText').value,
+                font: $('#font').value,
+                fontSize: parseInt($('#fontSize').value),
+                bgColor: $('#bgColor').value,
+                glow: $('#glow').value,
+                border: $('#border').value,
+                opacity: parseFloat($('#opacity').value)
+            };
+        }
+        
+        function validate(cfg) {
+            if (!cfg.sourceText.trim()) return 'Добавьте текст';
+            if (!parseGaps(cfg.sourceText).some(p => p.isGap)) return 'Выделите слова в []';
+            return null;
+        }
+        
+        function applyGoogleFont(font) {
+            const link = document.createElement('link');
+            link.href = `https://fonts.googleapis.com/css2?family=${font.replace(' ','+')}&display=swap`;
+            link.rel = 'stylesheet';
+            document.head.appendChild(link);
+        }
+        
+        async function publish() {
+            const cfg = collectConfig();
+            const err = validate(cfg);
+            if (err) { alert(err); return; }
+            applyGoogleFont(cfg.font);
+            
+            const id = makeIdFromFirstTarget(cfg);
+            const payload = {
+                id, mode: "json", folder: "data",
+                content: JSON.stringify(cfg, null, 2)
+            };
+            try {
+                const res = await fetch(ENDPOINT, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "X-Publish-Key": PUBLISH_KEY },
+                    body: JSON.stringify(payload)
+                });
+                if (!res.ok) {
+                    const t = await res.text().catch(()=>res.statusText);
+                    throw new Error(t || 'Server error');
+                }
+                const iframe = `<iframe src="${BASE_MAIN}?id=${encodeURIComponent(id)}" width="900" height="640" style="border:0;" allow="autoplay" allowfullscreen></iframe>`;
+                $('#iframeOut').value = iframe;
+                alert('Опубликовано! Подождите 30–60 сек (кеш GitHub Pages) [web:19][web:24].');
+            } catch(e) {
+                alert("Сеть/сервер: " + e.message);
+            }
+        }
+        
+        function makeIdFromFirstTarget(cfg) {
+            const firstGap = parseGaps(cfg.sourceText).find(p => p.isGap)?.text || 'text';
+            const slug = firstGap.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'')
+                .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,40) || 'gap';
+            const d = new Date(), p = n => String(n).padStart(2,'0');
+            return `${slug}-${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+        }
+        
+        function quickTest() {
+            const cfg = collectConfig();
+            const err = validate(cfg);
+            if (err) { alert(err); return; }
+            alert('JSON валиден. Пропусков: ' + parseGaps(cfg.sourceText).filter(p => p.isGap).length);
+            console.log(cfg);
+        }
+        
+        function copyIframe() {
+            const v = $('#iframeOut').value.trim();
+            if (!v) { alert('Сначала опубликуйте'); return; }
+            navigator.clipboard.writeText(v);
+        }
+        
+        // автозапуск
+        $('#sourceText').addEventListener('input', updatePreview);
+        updatePreview();
+    </script>
+</body>
+</html>
